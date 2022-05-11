@@ -96,8 +96,8 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
             if (initialRoute == null) {
                 initialRoute = "/";
             }
-            flutterEngine.getNavigationChannel().setInitialRoute(initialRoute);
-            flutterEngine.getDartExecutor().executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault());
+            // flutterEngine.getNavigationChannel().setInitialRoute(initialRoute);
+            // flutterEngine.getDartExecutor().executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault());
             FlutterEngineCache.getInstance().put(flutterEngineId, flutterEngine);
         }
         return flutterEngine;
