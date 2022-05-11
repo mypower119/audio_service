@@ -65,13 +65,7 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
     public static String getFlutterEngineId() {
         return flutterEngineId;
     }
-    public static synchronized void setArmStartup(boolean enabled) {
-        armStartup = enabled;
-    }
     public static synchronized FlutterEngine getFlutterEngine(Context context) {
-        // if (armStartup == false) {
-        //     return null;
-        // }
         FlutterEngine flutterEngine = FlutterEngineCache.getInstance().get(flutterEngineId);
         if (flutterEngine == null) {
             // XXX: The constructor triggers onAttachedToEngine so this variable doesn't help us.
@@ -128,7 +122,6 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
     private static final long bootTime;
     private static Result configureResult;
     private static boolean flutterReady;
-    private static boolean armStartup = false;
 
     static {
         bootTime = System.currentTimeMillis() - SystemClock.elapsedRealtime();
