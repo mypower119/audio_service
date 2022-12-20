@@ -579,8 +579,31 @@ class MediaItem {
   /// The duration of this media item.
   final Duration? duration;
 
-  /// The artwork for this media item as a uri.
+  /// The artwork URI for this media item.
+  ///
+  /// Supported types of URIs are:
+  ///
+  ///  * File - file://
+  ///  * Network - http:// https:// etc.
+  ///  * Android content URIs - content://
+  ///
+  /// ## Speeding up Android content URI loading
+  ///
+  /// For Android content:// URIs, the plugin by default uses
+  /// `ContentResolver.openFileDescriptor`, which takes the direct URI of an
+  /// image.
+  ///
+  /// On Android API >= 29 there is `ContentResolver.loadThumbnail` function
+  /// which takes a URI of some content (for example, a song from `MediaStore`),
+  /// and returns a thumbnail for it.
+  ///
+  /// It is noticeably faster to use this function. You can enable this by
+  /// putting a `loadThumbnailUri` key into the [extras]. If `loadThumbnail` is
+  /// not available, it will just fallback to using `openFileDescriptor`.
   final Uri? artUri;
+
+  /// The HTTP headers to use when sending an HTTP request for [artUri].
+  final Map<String, String>? artHeaders;
 
   /// Whether this is playable (i.e. not a folder).
   final bool? playable;
@@ -613,6 +636,7 @@ class MediaItem {
     this.genre,
     this.duration,
     this.artUri,
+    this.artHeaders,
     this.playable = true,
     this.displayTitle,
     this.displaySubtitle,
@@ -877,10 +901,10 @@ class AudioService {
   static final _compatibilitySwitcher = SwitchAudioHandler();
 
   /// Register the app's [AudioHandler] with configuration options. This must be
-  /// called during the app's initialisation so that it is prepared to handle
-  /// audio requests immediately after a cold restart (e.g. if the user clicks
-  /// on the play button in the media notification while your app is not running
-  /// and your app needs to be woken up).
+  /// called once during the app's initialisation so that it is prepared to
+  /// handle audio requests immediately after a cold restart (e.g. if the user
+  /// clicks on the play button in the media notification while your app is not
+  /// running and your app needs to be woken up).
   ///
   /// You may optionally specify a [cacheManager] to use when loading artwork to
   /// display in the media notification and lock screen. This defaults to
@@ -917,44 +941,67 @@ class AudioService {
   }
 
   static Future<void> _observeMediaItem() async {
-    await for (var mediaItem in _handler.mediaItem) {
-      if (mediaItem == null) continue;
+    Object? _artFetchOperationId;
+    _handler.mediaItem.listen((mediaItem) async {
+      if (mediaItem == null) {
+        return;
+      }
+      final operationId = Object();
+      _artFetchOperationId = operationId;
       final artUri = mediaItem.artUri;
-      if (artUri != null) {
-        // We potentially need to fetch the art.
-        String? filePath;
+      if (artUri == null || artUri.scheme == 'content') {
+        _platform.setMediaItem(
+            SetMediaItemRequest(mediaItem: mediaItem._toMessage()));
+      } else {
+        /// Sends media item to the platform.
+        /// We potentially need to fetch the art before that.
+        Future<void> _sendToPlatform(String? filePath) async {
+          final extras = mediaItem.extras;
+          final platformMediaItem = mediaItem.copyWith(
+            extras: <String, dynamic>{
+              if (extras != null) ...extras,
+              'artCacheFile': filePath,
+            },
+          );
+          await _platform.setMediaItem(
+              SetMediaItemRequest(mediaItem: platformMediaItem._toMessage()));
+        }
+
         if (artUri.scheme == 'file') {
-          filePath = artUri.toFilePath();
+          _sendToPlatform(artUri.toFilePath());
         } else {
+          // Try to load a cached file from memory.
           final fileInfo =
               await cacheManager.getFileFromMemory(artUri.toString());
-          filePath = fileInfo?.file.path;
-          if (filePath == null) {
+          final filePath = fileInfo?.file.path;
+          if (operationId != _artFetchOperationId) {
+            return;
+          }
+
+          if (filePath != null) {
+            // If we successfully downloaded the art call to platform.
+            _sendToPlatform(filePath);
+          } else {
             // We haven't fetched the art yet, so show the metadata now, and again
             // after we load the art.
             await _platform.setMediaItem(
                 SetMediaItemRequest(mediaItem: mediaItem._toMessage()));
-            // Load the art
-            filePath = await _loadArtwork(mediaItem);
-            // If we failed to download the art, abort.
-            if (filePath == null) continue;
-            // If we've already set a new media item, cancel this request.
-            // XXX: Test this
-            //if (mediaItem != _handler.mediaItem.value) continue;
+            if (operationId != _artFetchOperationId) {
+              return;
+            }
+            // Load the art.
+            final loadedFilePath = await _loadArtwork(mediaItem);
+            if (operationId != _artFetchOperationId) {
+              return;
+            }
+            // If we successfully downloaded the art, call to platform.
+            if (loadedFilePath != null) {
+              _sendToPlatform(loadedFilePath);
+            }
           }
         }
-        final extras =
-            Map<String, dynamic>.of(mediaItem.extras ?? <String, dynamic>{});
-        extras['artCacheFile'] = filePath;
-        final platformMediaItem = mediaItem.copyWith(extras: extras);
-        // Show the media item after the art is loaded.
-        await _platform.setMediaItem(
-            SetMediaItemRequest(mediaItem: platformMediaItem._toMessage()));
-      } else {
-        await _platform.setMediaItem(
-            SetMediaItemRequest(mediaItem: mediaItem._toMessage()));
       }
-    }
+    });
   }
 
   static Future<void> _observeAndroidPlaybackInfo() async {
@@ -1095,13 +1142,18 @@ class AudioService {
         if (artUri.scheme == 'file') {
           return artUri.toFilePath();
         } else {
-          final file =
-              await cacheManager.getSingleFile(mediaItem.artUri!.toString());
+          final headers = mediaItem.artHeaders;
+          final file = headers != null
+              ? await cacheManager.getSingleFile(mediaItem.artUri!.toString(),
+                  headers: headers)
+              : await cacheManager.getSingleFile(mediaItem.artUri!.toString());
           return file.path;
         }
       }
-    } catch (e) {
+    } catch (e, st) {
       // TODO: handle this somehow?
+      // ignore: avoid_print
+      print('Error loading artUri: $e\n$st');
     }
     return null;
   }

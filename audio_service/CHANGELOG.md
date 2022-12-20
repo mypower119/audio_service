@@ -1,6 +1,24 @@
+## 0.18.8
+
+* Improve efficiency of mediaItem updates (@nt4f04uNd).
+
+## 0.18.7
+
+* Fix stopForeground bug on Android SDK < 24.
+* Migrate to androidx.media 1.6.0 (@snipd-mikel)
+* Propagate MediaItem extras to Android Auto (@snipd-mikel)
+* Update progress bar in Android Auto (@snipd-mikel)
+
+## 0.18.6
+
+* Fix build when targeting Android 13.
+* Add MediaItem.artHeaders.
+
 ## 0.18.5
 
-* Add AudioServiceFragmentActivity.
+* Add AudioServiceFragmentActivity (@deimantasa).
+* Support `content://` art URIs in notification on Android (@nt4f04uNd).
+* Document Android foregroundServiceType.
 
 ## 0.18.4
 
